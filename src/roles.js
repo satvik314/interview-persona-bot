@@ -19,6 +19,7 @@ export const ROLES = [
     short: 'AI PM',
     icon: '◆',
     tagline: 'Product sense, AI strategy & evals',
+    quizTopics: ['LLM fundamentals for PMs', 'Metrics & evals', 'AI product strategy', 'AI UX & trust', 'Responsible AI'],
     theme: {
       primary: '#22d3ee', // cyan
       secondary: '#3b82f6', // blue
@@ -54,6 +55,7 @@ ${SHARED_RULES}`,
     short: 'FDE',
     icon: '▲',
     tagline: 'Customer-facing engineering & shipping',
+    quizTopics: ['RAG & retrieval', 'Agents & tool use', 'LLM APIs in production', 'Customer scenarios', 'Evals & debugging'],
     theme: {
       primary: '#34d399', // emerald / neon green
       secondary: '#06b6d4', // teal-cyan
@@ -88,6 +90,7 @@ ${SHARED_RULES}`,
     short: 'Researcher',
     icon: '●',
     tagline: 'ML depth, papers & research taste',
+    quizTopics: ['Transformers & attention', 'Optimization & training', 'Scaling laws & pretraining', 'RLHF & alignment', 'Inference efficiency'],
     theme: {
       primary: '#a78bfa', // violet
       secondary: '#ec4899', // neon pink

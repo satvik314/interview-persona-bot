@@ -3,28 +3,30 @@ import DOMPurify from 'dompurify';
 import './style.css';
 import { ROLES, getRole } from './roles.js';
 import { MODEL, streamChat } from './gemini.js';
+import { createQuizView } from './quiz.js';
 
 marked.setOptions({ gfm: true, breaks: true });
 
 const KEY_STORAGE = 'aia.geminiKey';
 const ROLE_STORAGE = 'aia.activeRole';
+const MODE_STORAGE = 'aia.mode';
 
 // ---------- State ----------
 const state = {
   apiKey: localStorage.getItem(KEY_STORAGE) || sessionStorage.getItem(KEY_STORAGE) || '',
   activeRole: getRole(localStorage.getItem(ROLE_STORAGE)).id,
-  /** @type {Record<string, {id: string, role: 'user'|'model', text: string, error?: boolean, pending?: boolean}[]>} */
+  mode: localStorage.getItem(MODE_STORAGE) === 'quiz' ? 'quiz' : 'chat',
+  /** @type {Record<string, {id: string, role: 'user'|'model', text: string, error?: boolean, pending?: boolean, greeting?: boolean}[]>} */
   chats: {},
   /** @type {Record<string, AbortController>} */
   inflight: {},
+  /** Whether the chat should keep following a streaming reply. Turned off as soon as the user scrolls up. */
+  follow: false,
 };
 
 let idCounter = 0;
 const newId = () => `m${Date.now().toString(36)}${(idCounter++).toString(36)}`;
-
-function greetingFor(roleId) {
-  return { id: newId(), role: 'model', text: getRole(roleId).greeting, greeting: true };
-}
+const greetingFor = (roleId) => ({ id: newId(), role: 'model', text: getRole(roleId).greeting, greeting: true });
 
 ROLES.forEach((r) => {
   state.chats[r.id] = [greetingFor(r.id)];
@@ -35,7 +37,7 @@ const $ = (sel) => document.querySelector(sel);
 const els = {
   roles: $('#roles'),
   messages: $('#messages'),
-  starters: $('#starters'),
+  jumpBtn: $('#jump-btn'),
   composer: $('#composer'),
   input: $('#input'),
   sendBtn: $('#send-btn'),
@@ -43,6 +45,9 @@ const els = {
   roleIcon: $('#chat-role-icon'),
   roleTitle: $('#chat-role-title'),
   roleTagline: $('#chat-role-tagline'),
+  modeBtns: document.querySelectorAll('.mode-btn'),
+  viewChat: $('#view-chat'),
+  viewQuiz: $('#view-quiz'),
   keyPill: $('#key-pill'),
   keyPillLabel: $('#key-pill-label'),
   modelName: $('#model-name'),
@@ -57,6 +62,17 @@ const els = {
 };
 
 els.modelName.textContent = MODEL;
+
+const quizView = createQuizView({
+  root: els.viewQuiz,
+  getRole: () => getRole(state.activeRole),
+  getApiKey: () => state.apiKey,
+  onNeedKey: (msg) => openKeyModal(msg),
+  onDiscuss: (prompt) => {
+    setMode('chat');
+    send(prompt);
+  },
+});
 
 // ---------- Rendering ----------
 const renderMarkdown = (text) => DOMPurify.sanitize(marked.parse(text));
@@ -73,9 +89,12 @@ function renderRoleTabs() {
     btn.style.setProperty('--r-secondary', role.theme.secondary);
     btn.style.setProperty('--r-glow', role.theme.glow);
     btn.innerHTML = `
-      <span class="role-index">Job ${i + 1}</span>
-      <span class="role-icon" aria-hidden="true">${role.icon}</span>
-      <span class="role-name">${role.title}</span>
+      <span class="role-orb" aria-hidden="true">${role.icon}</span>
+      <span class="role-text">
+        <span class="role-index">Job ${i + 1}</span>
+        <span class="role-name">${role.title}</span>
+        <span class="role-short">${role.short}</span>
+      </span>
     `;
     btn.addEventListener('click', () => setActiveRole(role.id));
     els.roles.appendChild(btn);
@@ -124,11 +143,38 @@ function fillBubble(bubble, msg) {
   if (msg.pending) bubble.insertAdjacentHTML('beforeend', '<span class="cursor" aria-hidden="true"></span>');
 }
 
+function startersEl(role) {
+  const wrap = document.createElement('div');
+  wrap.className = 'starters';
+  const label = document.createElement('div');
+  label.className = 'starters-label';
+  label.textContent = 'Try one of these';
+  wrap.appendChild(label);
+
+  role.starters.forEach((text) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = text;
+    chip.addEventListener('click', () => send(text));
+    wrap.appendChild(chip);
+  });
+
+  const quizChip = document.createElement('button');
+  quizChip.type = 'button';
+  quizChip.className = 'chip chip-quiz';
+  quizChip.textContent = '🧠 Take a quick multiple-choice quiz';
+  quizChip.addEventListener('click', () => setMode('quiz'));
+  wrap.appendChild(quizChip);
+  return wrap;
+}
+
 function renderMessages() {
-  const msgs = state.chats[state.activeRole];
+  const role = getRole(state.activeRole);
+  const msgs = state.chats[role.id];
   els.messages.innerHTML = '';
   msgs.forEach((m) => els.messages.appendChild(messageEl(m)));
-  scrollToBottom(true);
+  if (msgs.length === 1 && msgs[0].greeting) els.messages.appendChild(startersEl(role));
 }
 
 function updateMessage(roleId, msg) {
@@ -138,32 +184,58 @@ function updateMessage(roleId, msg) {
   const bubble = row.querySelector('.bubble');
   bubble.classList.toggle('is-error', !!msg.error);
   fillBubble(bubble, msg);
-  scrollToBottom();
+  followReply(row);
+  updateJumpBtn();
 }
 
-function scrollToBottom(force = false) {
+// ---------- Scrolling ----------
+const distanceFromBottom = () => {
   const el = els.messages;
-  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
-  if (force || nearBottom) el.scrollTop = el.scrollHeight;
+  return el.scrollHeight - el.scrollTop - el.clientHeight;
+};
+
+/**
+ * While a reply streams in, scroll down with it, but only until the top of the reply
+ * reaches the top of the chat window. That way long answers are read from the start
+ * instead of the view jumping to their last line.
+ */
+function followReply(row) {
+  if (!state.follow) return;
+  const el = els.messages;
+  const target = Math.min(el.scrollHeight - el.clientHeight, row.offsetTop - 12);
+  if (target > el.scrollTop) el.scrollTop = target;
 }
 
-function renderStarters() {
-  const role = getRole(state.activeRole);
-  const msgs = state.chats[role.id];
-  const fresh = msgs.length === 1 && msgs[0].greeting;
-  els.starters.innerHTML = '';
-  els.starters.hidden = !fresh;
-  if (!fresh) return;
-  role.starters.forEach((text) => {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'chip';
-    chip.textContent = text;
-    chip.addEventListener('click', () => send(text));
-    els.starters.appendChild(chip);
-  });
+/** Put a newly sent user message near the top of the view so the reply has room below it. */
+function revealRow(row) {
+  const el = els.messages;
+  el.scrollTop = Math.min(el.scrollHeight - el.clientHeight, row.offsetTop - 12);
 }
 
+function updateJumpBtn() {
+  els.jumpBtn.hidden = distanceFromBottom() < 160;
+}
+
+els.messages.addEventListener('scroll', updateJumpBtn, { passive: true });
+els.messages.addEventListener(
+  'wheel',
+  (e) => {
+    if (e.deltaY < 0) state.follow = false;
+  },
+  { passive: true },
+);
+els.messages.addEventListener(
+  'touchstart',
+  () => {
+    state.follow = false;
+  },
+  { passive: true },
+);
+els.jumpBtn.addEventListener('click', () => {
+  els.messages.scrollTo({ top: els.messages.scrollHeight, behavior: 'smooth' });
+});
+
+// ---------- Header / chrome ----------
 function renderHeader() {
   const role = getRole(state.activeRole);
   els.roleIcon.textContent = role.icon;
@@ -174,6 +246,19 @@ function renderHeader() {
     b.classList.toggle('active', active);
     b.setAttribute('aria-selected', String(active));
   });
+}
+
+function renderMode() {
+  const quiz = state.mode === 'quiz';
+  els.viewChat.hidden = quiz;
+  els.viewQuiz.hidden = !quiz;
+  els.resetBtn.hidden = quiz;
+  els.modeBtns.forEach((b) => {
+    const active = b.dataset.mode === state.mode;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-selected', String(active));
+  });
+  if (quiz) quizView.render();
 }
 
 function renderComposer() {
@@ -194,24 +279,41 @@ function renderKeyPill() {
 function renderAll() {
   renderHeader();
   renderMessages();
-  renderStarters();
   renderComposer();
   renderKeyPill();
+  renderMode();
+  // Show the latest messages when (re)opening a conversation.
+  els.messages.scrollTop = els.messages.scrollHeight;
+  updateJumpBtn();
 }
 
 // ---------- Actions ----------
 function setActiveRole(roleId) {
   if (roleId === state.activeRole) return;
   state.activeRole = roleId;
+  state.follow = false;
   localStorage.setItem(ROLE_STORAGE, roleId);
   applyTheme(getRole(roleId));
 
-  els.messages.classList.remove('swap');
-  void els.messages.offsetWidth; // restart the swap animation
-  els.messages.classList.add('swap');
+  const view = state.mode === 'quiz' ? els.viewQuiz : els.messages;
+  view.classList.remove('swap');
+  void view.offsetWidth; // restart the swap animation
+  view.classList.add('swap');
 
   renderAll();
-  els.input.focus();
+  if (state.mode === 'chat') els.input.focus({ preventScroll: true });
+}
+
+function setMode(mode) {
+  if (mode === state.mode) return;
+  state.mode = mode;
+  localStorage.setItem(MODE_STORAGE, mode);
+  renderMode();
+  if (mode === 'chat') {
+    els.messages.scrollTop = els.messages.scrollHeight;
+    updateJumpBtn();
+    els.input.focus({ preventScroll: true });
+  }
 }
 
 async function send(rawText) {
@@ -230,7 +332,8 @@ async function send(rawText) {
   // Drop a previous error bubble so it isn't sent as context.
   if (chat.length && chat[chat.length - 1].error) chat.pop();
 
-  chat.push({ id: newId(), role: 'user', text });
+  const userMsg = { id: newId(), role: 'user', text };
+  chat.push(userMsg);
   const reply = { id: newId(), role: 'model', text: '', pending: true };
   chat.push(reply);
 
@@ -239,9 +342,11 @@ async function send(rawText) {
 
   const controller = new AbortController();
   state.inflight[roleId] = controller;
+  state.follow = true;
   renderMessages();
-  renderStarters();
   renderComposer();
+  revealRow(els.messages.querySelector(`[data-id="${userMsg.id}"]`));
+  updateJumpBtn();
 
   // Gemini requires the conversation to start with a user turn, so the local
   // greeting is skipped; the persona lives in the system instruction.
@@ -270,9 +375,7 @@ async function send(rawText) {
         reply.text = `⚠️ ${err.message}`;
         reply.error = true;
       }
-      if (err.status === 400 || err.status === 401 || err.status === 403) {
-        if (/key/i.test(err.message)) openKeyModal(err.message);
-      }
+      if ([400, 401, 403].includes(err.status) && /key/i.test(err.message)) openKeyModal(err.message);
     }
   } finally {
     reply.pending = false;
@@ -291,6 +394,8 @@ function resetChat() {
   els.input.focus();
 }
 
+els.modeBtns.forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+
 // ---------- API key modal ----------
 function openKeyModal(errorMsg = '') {
   els.keyInput.value = state.apiKey;
@@ -307,7 +412,7 @@ function openKeyModal(errorMsg = '') {
 
 function closeKeyModal() {
   els.modal.hidden = true;
-  els.input.focus();
+  if (state.mode === 'chat') els.input.focus({ preventScroll: true });
 }
 
 function saveKey(key, remember) {
@@ -352,16 +457,21 @@ els.modal.addEventListener('click', (e) => {
   if (e.target === els.modal && state.apiKey) closeKeyModal();
 });
 
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !els.modal.hidden && state.apiKey) closeKeyModal();
-});
-
 els.keyPill.addEventListener('click', () => openKeyModal());
+
+// ---------- Keyboard ----------
+document.addEventListener('keydown', (e) => {
+  if (!els.modal.hidden) {
+    if (e.key === 'Escape' && state.apiKey) closeKeyModal();
+    return;
+  }
+  if (state.mode === 'quiz') quizView.handleKey(e);
+});
 
 // ---------- Composer ----------
 function autosize() {
   els.input.style.height = 'auto';
-  els.input.style.height = `${Math.min(els.input.scrollHeight, 180)}px`;
+  els.input.style.height = `${Math.min(els.input.scrollHeight, 160)}px`;
 }
 
 els.input.addEventListener('input', autosize);

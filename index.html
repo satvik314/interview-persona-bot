@@ -19,7 +19,7 @@
 
     <main class="app">
       <section class="panel">
-        <header class="panel-header">
+        <header class="topbar">
           <h1 class="title">AI Interview <span class="title-accent">Agent</span></h1>
           <button class="key-pill" id="key-pill" type="button" title="Manage your Gemini API key">
             <span class="key-dot" aria-hidden="true"></span>
@@ -30,38 +30,56 @@
 
         <nav class="roles" id="roles" role="tablist" aria-label="Choose the role you are interviewing for"></nav>
 
-        <section class="chat" aria-live="polite">
-          <div class="chat-toolbar">
+        <section class="workspace">
+          <div class="toolbar">
             <div class="chat-role">
               <span class="chat-role-icon" id="chat-role-icon"></span>
-              <div>
+              <div class="chat-role-text">
                 <div class="chat-role-title" id="chat-role-title"></div>
                 <div class="chat-role-tagline" id="chat-role-tagline"></div>
               </div>
+            </div>
+            <div class="mode-switch" role="tablist" aria-label="Mode">
+              <button type="button" class="mode-btn" data-mode="chat" role="tab">
+                <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg>
+                Coach
+              </button>
+              <button type="button" class="mode-btn" data-mode="quiz" role="tab">
+                <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 16h-2v-2h2zm2.1-7.75-.9.92A3.4 3.4 0 0 0 13 14h-2v-.5a4 4 0 0 1 1.2-2.83l1.24-1.26A2 2 0 1 0 10 8H8a4 4 0 1 1 7.1 2.25z"/></svg>
+                Quiz
+              </button>
             </div>
             <button class="ghost-btn" id="reset-btn" type="button" title="Start a fresh conversation for this role">
               ↺ New chat
             </button>
           </div>
 
-          <div class="messages" id="messages"></div>
+          <div class="view view-chat" id="view-chat">
+            <div class="messages-wrap">
+              <div class="messages" id="messages" aria-live="polite"></div>
+              <button class="jump-btn" id="jump-btn" type="button" hidden>↓ Jump to latest</button>
+            </div>
 
-          <div class="starters" id="starters"></div>
+            <form class="composer" id="composer" autocomplete="off">
+              <textarea
+                id="input"
+                rows="1"
+                placeholder="Ask a question or say “start a mock interview”…"
+                aria-label="Message"
+              ></textarea>
+              <button class="send-btn" id="send-btn" type="submit" aria-label="Send message">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                  <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6l-.01 6.53L15 12 3.39 13.87z" />
+                </svg>
+              </button>
+            </form>
+            <p class="footnote">
+              <span class="kbd-hints"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line · </span>Powered by
+              <code id="model-name"></code>
+            </p>
+          </div>
 
-          <form class="composer" id="composer" autocomplete="off">
-            <textarea
-              id="input"
-              rows="1"
-              placeholder="Ask a question or say “start a mock interview”…"
-              aria-label="Message"
-            ></textarea>
-            <button class="send-btn" id="send-btn" type="submit" aria-label="Send message">
-              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-                <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6l-.01 6.53L15 12 3.39 13.87z" />
-              </svg>
-            </button>
-          </form>
-          <p class="footnote">Powered by <code id="model-name"></code> · Your key stays in your browser.</p>
+          <div class="view view-quiz" id="view-quiz" hidden></div>
         </section>
       </section>
     </main>

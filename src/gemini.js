@@ -31,6 +31,32 @@ function friendlyError(status, apiMessage) {
   return apiMessage || `Request failed with status ${status}.`;
 }
 
+async function post(method, { apiKey, body, signal, query = '' }) {
+  const url = `${API_BASE}/models/${encodeURIComponent(MODEL)}:${method}${query}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    let apiMessage;
+    try {
+      apiMessage = (await res.json())?.error?.message;
+    } catch {
+      /* ignore non-JSON error bodies */
+    }
+    throw new GeminiError(friendlyError(res.status, apiMessage), res.status);
+  }
+  return res;
+}
+
+const textOf = (json) =>
+  (json?.candidates?.[0]?.content?.parts ?? [])
+    .filter((p) => !p.thought)
+    .map((p) => p.text ?? '')
+    .join('');
+
 /**
  * Stream a chat response from Gemini.
  * @param {object} opts
@@ -42,34 +68,16 @@ function friendlyError(status, apiMessage) {
  * @returns {Promise<string>} The full response text.
  */
 export async function streamChat({ apiKey, system, history, onChunk, signal }) {
-  const url = `${API_BASE}/models/${encodeURIComponent(MODEL)}:streamGenerateContent?alt=sse`;
-
-  const body = {
-    systemInstruction: { parts: [{ text: system }] },
-    contents: history.map((m) => ({ role: m.role, parts: [{ text: m.text }] })),
-    generationConfig: { temperature: 0.8 },
-  };
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': apiKey,
-    },
-    body: JSON.stringify(body),
+  const res = await post('streamGenerateContent', {
+    apiKey,
     signal,
+    query: '?alt=sse',
+    body: {
+      systemInstruction: { parts: [{ text: system }] },
+      contents: history.map((m) => ({ role: m.role, parts: [{ text: m.text }] })),
+      generationConfig: { temperature: 0.8 },
+    },
   });
-
-  if (!res.ok) {
-    let apiMessage;
-    try {
-      const data = await res.json();
-      apiMessage = data?.error?.message;
-    } catch {
-      /* ignore non-JSON error bodies */
-    }
-    throw new GeminiError(friendlyError(res.status, apiMessage), res.status);
-  }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -77,12 +85,11 @@ export async function streamChat({ apiKey, system, history, onChunk, signal }) {
   let full = '';
 
   const handleEvent = (raw) => {
-    const dataLines = raw
+    const payload = raw
       .split('\n')
       .filter((l) => l.startsWith('data:'))
-      .map((l) => l.slice(5).trim());
-    if (!dataLines.length) return;
-    const payload = dataLines.join('\n');
+      .map((l) => l.slice(5).trim())
+      .join('\n');
     if (!payload || payload === '[DONE]') return;
 
     let json;
@@ -94,12 +101,7 @@ export async function streamChat({ apiKey, system, history, onChunk, signal }) {
     if (json.error) {
       throw new GeminiError(json.error.message || 'Gemini returned an error.', json.error.code);
     }
-
-    const candidate = json.candidates?.[0];
-    const text = (candidate?.content?.parts ?? [])
-      .filter((p) => !p.thought)
-      .map((p) => p.text ?? '')
-      .join('');
+    const text = textOf(json);
     if (text) {
       full += text;
       onChunk?.(text);
@@ -127,4 +129,39 @@ export async function streamChat({ apiKey, system, history, onChunk, signal }) {
     throw new GeminiError('Gemini returned an empty response. Please try again.');
   }
   return full;
+}
+
+/**
+ * Ask Gemini for a JSON response that follows `schema`.
+ * @returns {Promise<any>} The parsed JSON value.
+ */
+export async function generateJSON({ apiKey, system, prompt, schema, signal, temperature = 0.9 }) {
+  const res = await post('generateContent', {
+    apiKey,
+    signal,
+    body: {
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature,
+        responseMimeType: 'application/json',
+        responseSchema: schema,
+      },
+    },
+  });
+
+  const json = await res.json();
+  if (json.promptFeedback?.blockReason) {
+    throw new GeminiError(`The request was blocked (${json.promptFeedback.blockReason}).`);
+  }
+  const text = textOf(json)
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```$/, '');
+  if (!text) throw new GeminiError('Gemini returned an empty response. Please try again.');
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new GeminiError('Gemini returned a malformed quiz. Please try again.');
+  }
 }
