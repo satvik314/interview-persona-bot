@@ -1,7 +1,7 @@
 // Minimal client for the Gemini API (generativelanguage.googleapis.com).
 // Calls are made directly from the browser with the user's own API key.
 
-export const MODEL = 'gemini-3.8-flash';
+export const MODEL = 'gemini-3.5-flash';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 export class GeminiError extends Error {
