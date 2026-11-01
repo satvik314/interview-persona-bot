@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Practice for AI Product Manager, Forward Deployed Engineer and AI Researcher interviews with an AI coach." />
+    <title>AI Interview Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-glow" aria-hidden="true"></div>
+
+    <main class="app">
+      <section class="panel">
+        <header class="panel-header">
+          <h1 class="title">AI Interview <span class="title-accent">Agent</span></h1>
+          <button class="key-pill" id="key-pill" type="button" title="Manage your Gemini API key">
+            <span class="key-dot" aria-hidden="true"></span>
+            <span id="key-pill-label">Add API key</span>
+          </button>
+        </header>
+        <div class="title-rule" aria-hidden="true"></div>
+
+        <nav class="roles" id="roles" role="tablist" aria-label="Choose the role you are interviewing for"></nav>
+
+        <section class="chat" aria-live="polite">
+          <div class="chat-toolbar">
+            <div class="chat-role">
+              <span class="chat-role-icon" id="chat-role-icon"></span>
+              <div>
+                <div class="chat-role-title" id="chat-role-title"></div>
+                <div class="chat-role-tagline" id="chat-role-tagline"></div>
+              </div>
+            </div>
+            <button class="ghost-btn" id="reset-btn" type="button" title="Start a fresh conversation for this role">
+              ↺ New chat
+            </button>
+          </div>
+
+          <div class="messages" id="messages"></div>
+
+          <div class="starters" id="starters"></div>
+
+          <form class="composer" id="composer" autocomplete="off">
+            <textarea
+              id="input"
+              rows="1"
+              placeholder="Ask a question or say “start a mock interview”…"
+              aria-label="Message"
+            ></textarea>
+            <button class="send-btn" id="send-btn" type="submit" aria-label="Send message">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6l-.01 6.53L15 12 3.39 13.87z" />
+              </svg>
+            </button>
+          </form>
+          <p class="footnote">Powered by <code id="model-name"></code> · Your key stays in your browser.</p>
+        </section>
+      </section>
+    </main>
+
+    <!-- API key modal -->
+    <div class="modal-backdrop" id="key-modal" hidden>
+      <form class="modal" id="key-form" role="dialog" aria-modal="true" aria-labelledby="key-title">
+        <h2 id="key-title">Connect your Gemini API key</h2>
+        <p class="modal-sub">
+          The coach runs on Google Gemini. Your key is sent only to Google's API, directly from your browser.
+          Get a key from
+          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.
+        </p>
+        <label class="field">
+          <span>Gemini API key</span>
+          <div class="field-row">
+            <input id="key-input" type="password" placeholder="AIza…" spellcheck="false" autocomplete="off" required />
+            <button type="button" class="ghost-btn small" id="key-toggle">Show</button>
+          </div>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="key-remember" checked />
+          <span>Remember on this device</span>
+        </label>
+        <p class="modal-error" id="key-error" hidden></p>
+        <div class="modal-actions">
+          <button type="button" class="ghost-btn" id="key-clear">Remove key</button>
+          <button type="button" class="ghost-btn" id="key-cancel">Cancel</button>
+          <button type="submit" class="primary-btn">Save &amp; start</button>
+        </div>
+      </form>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
